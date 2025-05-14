@@ -207,7 +207,7 @@ class SDIF(nn.Module):
                 nn.GELU()
             )
 
-    def forward(self, text_feats, video_feats, text_mask):
+    def forward(self, text_feats, video_feats, audio_feats, text_mask):
         # first layer : T,V,A
         # bert_sent, bert_sent_mask, bert_sent_type = text_feats[:,0], text_feats[:,1], text_feats[:,2]
         bert_sent_mask = text_mask
@@ -217,7 +217,7 @@ class SDIF(nn.Module):
 
         video_seq = self.v2t_project(video_feats)
         # video_seq = video_feats
-        #audio_seq = audio_feats
+        audio_seq = audio_feats
 
         video_mask = torch.sum(video_feats.ne(torch.zeros(video_feats[0].shape[-1]).to(self.device)).int(), dim=-1)/video_feats[0].shape[-1]
         video_mask_len = torch.sum(video_mask, dim=1, keepdim=True)  
@@ -226,11 +226,11 @@ class SDIF(nn.Module):
         video_masked_output = torch.mul(video_mask.unsqueeze(2), video_seq)
         video_rep = torch.sum(video_masked_output, dim=1, keepdim=False) / video_mask_len
         
-        # audio_mask = torch.sum(audio_feats.ne(torch.zeros(audio_feats[0].shape[-1]).to(self.device)).int(), dim=-1)/audio_feats[0].shape[-1]
-        # audio_mask_len = torch.sum(audio_mask, dim=1, keepdim=True)  
+        audio_mask = torch.sum(audio_feats.ne(torch.zeros(audio_feats[0].shape[-1]).to(self.device)).int(), dim=-1)/audio_feats[0].shape[-1]
+        audio_mask_len = torch.sum(audio_mask, dim=1, keepdim=True)  
         
-        # audio_masked_output = torch.mul(audio_mask.unsqueeze(2), audio_seq)
-        # audio_rep = torch.sum(audio_masked_output, dim=1, keepdim=False) / audio_mask_len
+        audio_masked_output = torch.mul(audio_mask.unsqueeze(2), audio_seq)
+        audio_rep = torch.sum(audio_masked_output, dim=1, keepdim=False) / audio_mask_len
         
         # Second layer (V,A) --> T: V_T, A_T
         extended_video_mask = video_mask.unsqueeze(1).unsqueeze(2)
@@ -238,24 +238,22 @@ class SDIF(nn.Module):
         extended_video_mask = (1.0 - extended_video_mask) * -10000.0
         video2text_seq = self.video2text_cross(text_seq, video_seq, extended_video_mask)
 
-        # extended_audio_mask = audio_mask.unsqueeze(1).unsqueeze(2)
+        extended_audio_mask = audio_mask.unsqueeze(1).unsqueeze(2)
         extended_audio_mask = extended_audio_mask.to(dtype=next(self.parameters()).dtype)
         extended_audio_mask = (1.0 - extended_audio_mask) * -10000.0
-        # audio2text_seq = self.audio2text_cross(text_seq, audio_seq, extended_audio_mask)
+        audio2text_seq = self.audio2text_cross(text_seq, audio_seq, extended_audio_mask)
 
         text_mask_len = torch.sum(bert_sent_mask, dim=1, keepdim=True) 
         # print(bert_sent_mask.shape, bert_sent_mask.unsqueeze(2).shape, video2text_seq.shape)
         video2text_masked_output = torch.mul(bert_sent_mask.unsqueeze(2), video2text_seq)
         video2text_rep = torch.sum(video2text_masked_output, dim=1, keepdim=False) / text_mask_len
         
-        # audio2text_masked_output = torch.mul(bert_sent_mask.unsqueeze(2), audio2text_seq)
-        # audio2text_rep = torch.sum(audio2text_masked_output, dim=1, keepdim=False) / text_mask_len
+        audio2text_masked_output = torch.mul(bert_sent_mask.unsqueeze(2), audio2text_seq)
+        audio2text_rep = torch.sum(audio2text_masked_output, dim=1, keepdim=False) / text_mask_len
         
         # Third layer: mlp->VAL
         # shallow_seq = self.mlp_project(torch.cat([audio2text_seq, text_seq, video2text_seq], dim=1))
-
-        shallow_seq = self.mlp_project(torch.cat([text_seq, video2text_seq], dim=2))
-        # shallow_seq = self.mlp_project(torch.cat([audio2text_seq, text_seq, video2text_seq], dim=2))
+        shallow_seq = self.mlp_project(torch.cat([audio2text_seq, text_seq, video2text_seq], dim=2))
 
         return shallow_seq
 
@@ -296,7 +294,7 @@ class Shark(nn.Module):
 
         return con_loss
     
-    def forward(self, text_feats, video_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats, xBefore_feats, xAfter_feats):
+    def forward(self, text_feats, video_feats, audio_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats, xBefore_feats, xAfter_feats):
         text_mask = text_feats[:, 1]
         
         text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb, caption_emb, xBefore_emb, xAfter_emb = \
@@ -328,9 +326,9 @@ class Shark(nn.Module):
 
         # target_seq_len = video_feats.size(1)  # 230
         # xBefore_emb_proj_resized = torch.nn.functional.interpolate(
-        #     xBefore_emb_proj.permute(0, 2, 1),  # ddổi thành (batch_size, 256, 30)
-        #     size=target_seq_len,  # ddưa về chiều dài 230
-        #     mode='linear',  # nội suy tuyến tính
+        #     xBefore_emb_proj.permute(0, 2, 1),  # Đổi thành (batch_size, 256, 30)
+        #     size=target_seq_len,  # Đưa về chiều dài 230
+        #     mode='linear',  # Nội suy tuyến tính
         #     align_corners=False
         # ).permute(0, 2, 1)  # Đổi lại về (batch_size, 230, 256)
 
@@ -341,7 +339,7 @@ class Shark(nn.Module):
         #     align_corners=False
         # ).permute(0, 2, 1)
 
-        # W = torch.nn.Parameter(torch.randn(1, 1, video_feat_dim, device=device))  # cùng chiều với video_emb
+        # W = torch.nn.Parameter(torch.randn(1, 1, video_feat_dim, device=device))  # Sử dụng cùng chiều với video_emb
         # W.requires_grad = True
         # alpha = 0.5
 
@@ -355,12 +353,11 @@ class Shark(nn.Module):
         # output = self.pooler(text_feats) #remove audio&video
         # output = self.pooler(self.mag(text_feats, video_feats, audio_feats)) #full model
 
-        #output = self.pooler(self.sdif(text_with_visual_comet, video_feats, audio_feats, text_mask))
-        
-        output = self.pooler(text_with_visual_comet, video_feats, text_mask) #remove audio
+        output = self.pooler(self.sdif(text_with_visual_comet, video_feats, audio_feats, text_mask))
 
         output = self.dropout(output)
         logits = self.classifier(output)
             
         # con_loss = self.contrastive_loss(new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt)
         return logits
+    
