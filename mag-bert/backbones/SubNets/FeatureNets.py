@@ -178,6 +178,7 @@ class BertCrossEncoder(nn.Module):
         super(BertCrossEncoder, self).__init__()
         layer = BertCrossAttentionLayer(num_attention_heads, hidden_size, dp_rate)
         self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(n_layers)])
+        
 
     def forward(self, s1_hidden_states, s2_hidden_states, s2_attention_mask):
         for layer_module in self.layer:

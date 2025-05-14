@@ -68,6 +68,8 @@ def parse_arguments():
 
     parser.add_argument("--weight_fuse_relation", type=float, default=0.5, help='weight * xReact + (1-weight) * xWant')
 
+    parser.add_argument("--weight_fuse_visual_comet", type = float, default=0.5, help='weight * zT + (1-weight) * Visual_comet_emb')
+
     args = parser.parse_args()
 
     return args

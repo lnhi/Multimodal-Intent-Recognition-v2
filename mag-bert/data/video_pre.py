@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pickle
 import logging
+# from imblearn.over_sampling import SMOTE
 
 __all__ = ['VideoDataset']
 
@@ -30,6 +31,25 @@ class VideoDataset:
         dev_feats = [video_feats[x] for x in base_attrs['dev_data_index']]
         test_feats = [video_feats[x] for x in base_attrs['test_data_index']]
 
+        # if 'train_labels' not in base_attrs:
+        #     raise KeyError("Key 'train_labels' is missing in base_attrs. Ensure train_labels is provided.")
+    
+        # train_labels = base_attrs['train_labels']
+
+        # # Chuyển train_feats và train_labels sang dạng numpy array
+        # X_train = np.array(train_feats)  # Đặc trưng video
+        # y_train = np.array(train_labels, dtype=int)  # Nhãn
+
+        # # Áp dụng SMOTE để cân bằng dữ liệu
+        # smote = SMOTE(random_state=42)
+        # X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+
+        # # Log lại phân phối nhãn sau SMOTE
+        # from collections import Counter
+        # self.logger.info(f"Label distribution after SMOTE: {Counter(y_resampled)}")
+
+        # # Chuyển X_resampled về danh sách để giữ định dạng ban đầu
+        # train_feats_resampled = X_resampled.tolist()
         self.logger.info('Load Video Features Finished...')
 
 

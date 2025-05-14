@@ -20,6 +20,7 @@ benchmarks = {
             'video': 230, # truth: 225
             'audio': 480, # truth: 477
             'relation': 30, #for shark method
+            'visualcomet': 30,
         },
         'feat_dims':{
             'text': 768,

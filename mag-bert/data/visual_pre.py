@@ -2,18 +2,20 @@ import os
 import csv
 import sys
 import logging
+import pandas as pd
 from transformers import BertTokenizer
 import numpy as np
 # from imblearn.over_sampling import SMOTE
 
-__all__ = ['TextDataset']
+__all__ = ['VisualCometDataset']
 
-class TextDataset:
+class VisualCometDataset:
     
-    def __init__(self, args, base_attrs):
+    def __init__(self, args, base_attrs, visualcomet_source):
         
         self.logger = logging.getLogger(args.logger_name)
-        self.base_attrs = base_attrs
+        self.visualcomet_source = visualcomet_source
+        self.visualcomet_path = os.path.join(args.data_path, args.dataset, 'visualcomet', self.visualcomet_source)
         
         if args.text_backbone.startswith('bert'):
             self.feats = self._get_feats(args, base_attrs)
@@ -22,21 +24,22 @@ class TextDataset:
 
     def _get_feats(self, args, base_attrs):
 
-        self.logger.info('Generate Text Features Begin...')
+        self.logger.info('Generate Visual Comet Features From ' + self.visualcomet_source + ' Begin...')
 
         processor = DatasetProcessor()
 
-        train_examples = processor.get_examples(base_attrs['data_path'], 'train')
-        train_feats = self._get_bert_feats(args, train_examples, base_attrs)
+        train_xBefore_examples, train_xAfter_examples = processor.get_examples(self.visualcomet_path, 'train', self.visualcomet_source)
+        train_feats = self._get_bert_feats(args, train_xBefore_examples, train_xAfter_examples, base_attrs)
 
         # X_train = []
         # y_train = []
-        # for i, feat in enumerate(train_feats):
-        #     # Gộp input_ids và input_mask để làm đặc trưng
-        #     feature = np.hstack((feat[0], feat[1]))  # input_ids + input_mask
+        # for i, xBefore in enumerate(train_feats['xBefore']):
+        #     xAfter = train_feats['xAfter'][i]
+        #     # Gộp đặc trưng từ xBefore và xAfter
+        #     feature = np.hstack((xBefore[0], xBefore[1], xAfter[0], xAfter[1]))  # input_ids + input_mask
         #     X_train.append(feature)
         #     # Lấy nhãn từ GUID (giả định nhãn nằm trong GUID của examples)
-        #     label = int(train_examples[i].guid.split('-')[1])
+        #     label = int(train_xBefore_examples[i].guid.split('-')[1])
         #     y_train.append(label)
 
         # X_train = np.array(X_train)
@@ -51,21 +54,27 @@ class TextDataset:
         # self.logger.info(f"Label distribution after SMOTE: {Counter(y_resampled)}")
 
         # # Chuyển đổi lại dữ liệu sau SMOTE về định dạng train_feats
-        # train_feats_resampled = []
-        # for i in range(len(X_resampled)):
-        #     input_ids = X_resampled[i][:len(train_feats[0][0])]  # Tách input_ids
-        #     input_mask = X_resampled[i][len(train_feats[0][0]):]  # Tách input_mask
-        #     segment_ids = [0] * len(input_ids)  # Giữ nguyên segment_ids (nếu cần)
+        # train_feats_resampled = {
+        #     'xBefore': [],
+        #     'xAfter': []
+        # }
+        # for feature, label in zip(X_resampled, y_resampled):
+        #     # Tách lại input_ids và input_mask cho xBefore và xAfter
+        #     input_ids_xBefore = feature[:len(train_feats['xBefore'][0][0])]
+        #     input_mask_xBefore = feature[len(train_feats['xBefore'][0][0]):len(train_feats['xBefore'][0][0]) + len(train_feats['xBefore'][0][1])]
+        #     input_ids_xAfter = feature[-len(train_feats['xAfter'][0][0]) - len(train_feats['xAfter'][0][1]):-len(train_feats['xAfter'][0][1])]
+        #     input_mask_xAfter = feature[-len(train_feats['xAfter'][0][1]):]
 
-        #     train_feats_resampled.append([input_ids, input_mask, segment_ids])
+        #     train_feats_resampled['xBefore'].append([input_ids_xBefore, input_mask_xBefore, [0] * len(input_ids_xBefore)])
+        #     train_feats_resampled['xAfter'].append([input_ids_xAfter, input_mask_xAfter, [0] * len(input_ids_xAfter)])
 
-        dev_examples = processor.get_examples(base_attrs['data_path'], 'dev')
-        dev_feats = self._get_bert_feats(args, dev_examples, base_attrs)
+        dev_xBefore_examples, dev_xAfter_examples = processor.get_examples(self.visualcomet_path, 'dev', self.visualcomet_source)
+        dev_feats = self._get_bert_feats(args, dev_xBefore_examples, dev_xAfter_examples, base_attrs)
 
-        test_examples = processor.get_examples(base_attrs['data_path'], 'test')
-        test_feats = self._get_bert_feats(args, test_examples, base_attrs)
+        test_xBefore_examples, test_xAfter_examples = processor.get_examples(self.visualcomet_path, 'test', self.visualcomet_source)
+        test_feats = self._get_bert_feats(args, test_xBefore_examples, test_xAfter_examples, base_attrs)
         
-        self.logger.info('Generate Text Features Finished...')
+        self.logger.info('Generate Visual Comet Features From ' + self.visualcomet_source + ' Finished...')
 
         return {
             'train': train_feats,
@@ -73,17 +82,23 @@ class TextDataset:
             'test': test_feats
         }
 
-    def _get_bert_feats(self, args, examples, base_attrs):
+    def _get_bert_feats(self, args, xBefore_examples, xAfter_examples, base_attrs):
 
-        max_seq_length = base_attrs["benchmarks"]['max_seq_lengths']['text']
+        max_seq_length = base_attrs["benchmarks"]['max_seq_lengths']['visualcomet']
 
         if args.text_backbone.startswith('bert'):
             tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)   
 
-        features = convert_examples_to_features(examples, max_seq_length, tokenizer)     
-        features_list = [[feat.input_ids, feat.input_mask, feat.segment_ids] for feat in features]
+        xBefore_features = convert_examples_to_features(xBefore_examples, max_seq_length, tokenizer)     
+        xBefore_features_list = [[feat.input_ids, feat.input_mask, feat.segment_ids] for feat in xBefore_features]
 
-        return features_list
+        xAfter_features = convert_examples_to_features(xAfter_examples, max_seq_length, tokenizer)     
+        xAfter_features_list = [[feat.input_ids, feat.input_mask, feat.segment_ids] for feat in xAfter_features]
+
+        return {
+            'xBefore': xBefore_features_list,
+            'xAfter': xAfter_features_list
+        }
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -132,33 +147,54 @@ class DataProcessor(object):
                     line = list(unicode(cell, 'utf-8') for cell in line)
                 lines.append(line)
             return lines
+        
+    @classmethod
+    def _read_csv(cls, input_file):
+        """Reads a comma separated value file."""
+        inputs = pd.read_csv(input_file, sep=',')
+        return inputs
 
 class DatasetProcessor(DataProcessor):
 
-    def get_examples(self, data_dir, mode):
+    def get_examples(self, visualcomet_dir, mode, visualcomet_source):
         if mode == 'train':
             return self._create_examples(
-                self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+                self._read_csv(os.path.join(visualcomet_dir, "train.csv")), "train", visualcomet_source)
         elif mode == 'dev':
             return self._create_examples(
-                self._read_tsv(os.path.join(data_dir, "dev.tsv")), "train")
+                self._read_csv(os.path.join(visualcomet_dir, "dev.csv")), "train", visualcomet_source)
         elif mode == 'test':
             return self._create_examples(
-                self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+                self._read_csv(os.path.join(visualcomet_dir, "test.csv")), "test", visualcomet_source)
 
-    def _create_examples(self, lines, set_type):
-        """Creates examples for the training and dev sets."""
+    def _create_one_type_examples(self, lines, set_type, visualcomet_type, visualcomet_source):
+        """Creates one relation type examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
-            if i == 0:
-                continue
-
             guid = "%s-%s" % (set_type, i)
-            text_a = line[3]
+            
+            if type(line) != str:
+                line = 'none'
+
+            if visualcomet_source == 'sbert':
+                line = line
+            elif visualcomet_source == 'comet':
+                line = line[2:len(line)-2]
+
+            if visualcomet_type == 'xBefore':
+                text_a = 'Before, the speaker needed to ' + line
+            elif visualcomet_type == 'xAfter':
+                text_a = 'After, the speaker will most likely ' + line
 
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=None))
         return examples
+    
+    def _create_examples(self, inputs, set_type, visualcomet_source):
+        """Creates examples for the training and dev sets."""
+        xBefore_examples = self._create_one_type_examples(inputs['xBefore'], set_type, 'xBefore', visualcomet_source)
+        xAfter_examples = self._create_one_type_examples(inputs['xAfter'], set_type, 'xAfter', visualcomet_source)
+        return xBefore_examples, xAfter_examples
 
 def convert_examples_to_features(examples, max_seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""

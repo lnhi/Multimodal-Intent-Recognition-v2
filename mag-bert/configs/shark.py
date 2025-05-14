@@ -39,6 +39,7 @@ class Param():
             aligned_method (str): The method for aligning different modalities. ('ctc', 'conv1d', 'avg_pool')
             weight_decay (float): The coefficient for L2 regularization. 
             weight_fuse_relation (float): The weight for fusing relation embeddings.
+            weight_fuse_visual_comet (float): The weight for fusing visual comet embeddings.
         """
         hyper_parameters = {
             'num_train_epochs': 100,

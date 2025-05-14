@@ -9,6 +9,8 @@ from .video_pre import VideoDataset
 from .audio_pre import AudioDataset
 from .mm_pre import MMDataset
 from .relation_pre import RelationDataset
+from .caption_pre import CaptionDataset
+from .visual_pre import VisualCometDataset
 from .__init__ import benchmarks
 
 __all__ = ['DataManager']
@@ -84,6 +86,8 @@ class DataManager:
         audio_feats = AudioDataset(args, attrs).feats
         comet_relation_feats = RelationDataset(args, attrs, 'comet').feats
         sbert_relation_feats = RelationDataset(args, attrs, 'sbert').feats
+        caption_feats = CaptionDataset(args, attrs).feats
+        visualcomet_feats = VisualCometDataset(args, attrs, 'comet').feats
 
         return {
             'text': text_feats,
@@ -92,6 +96,10 @@ class DataManager:
             'relation': {
                 'comet': comet_relation_feats,
                 'sbert': sbert_relation_feats
+            },
+            'caption': caption_feats,
+            'visualcomet': {
+                'comet': visualcomet_feats
             }
         }
     
@@ -102,13 +110,15 @@ class DataManager:
         audio_data = self.unimodal_feats['audio']
         comet_data = self.unimodal_feats['relation']['comet']
         sbert_data = self.unimodal_feats['relation']['sbert']
+        caption_data = self.unimodal_feats['caption']
+        visualcomet_data = self.unimodal_feats['visualcomet']['comet']
         
         mm_train_data = MMDataset(self.train_label_ids, text_data['train'], video_data['train'],\
-                                audio_data['train'], comet_data['train'], sbert_data['train'])
+                                audio_data['train'], comet_data['train'], sbert_data['train'], caption_data['train'], visualcomet_data['train'])
         mm_dev_data = MMDataset(self.dev_label_ids, text_data['dev'], video_data['dev'], \
-                                audio_data['dev'], comet_data['dev'], sbert_data['dev'])
+                                audio_data['dev'], comet_data['dev'], sbert_data['dev'], caption_data['dev'], visualcomet_data['dev'])
         mm_test_data = MMDataset(self.test_label_ids, text_data['test'], video_data['test'], \
-                                 audio_data['test'], comet_data['test'], sbert_data['test'])
+                                 audio_data['test'], comet_data['test'], sbert_data['test'], caption_data['test'], visualcomet_data['test'])
 
         return {
             'train': mm_train_data,

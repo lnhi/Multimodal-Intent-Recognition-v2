@@ -28,12 +28,12 @@ class Metrics(object):
     def __init__(self, args):
 
         self.logger = logging.getLogger(args.logger_name)
-        self.eval_metrics = ['acc', 'f1',  'prec', 'rec']
+        self.eval_metrics = ['acc', 'f1',  'prec', 'rec', 'weighted_f1']
 
     def __call__(self, y_true, y_pred, show_results = False):
 
         acc_score = self._acc_score(y_true, y_pred)
-        macro_f1 = self._f1_score(y_true, y_pred)
+        macro_f1, weighted_f1  = self._f1_score(y_true, y_pred)
         macro_prec = self._precision_score(y_true, y_pred)
         macro_rec = self._recall_score(y_true, y_pred)
 
@@ -42,6 +42,7 @@ class Metrics(object):
             'f1': macro_f1,
             'prec': macro_prec,
             'rec': macro_rec,
+            'weighted_f1': weighted_f1
         }
 
         if show_results:
@@ -58,7 +59,7 @@ class Metrics(object):
         return accuracy_score(y_true, y_pred)
     
     def _f1_score(self, y_true, y_pred):
-        return f1_score(y_true, y_pred, average='macro')
+        return f1_score(y_true, y_pred, average='macro'), f1_score(y_true, y_pred, average='weighted')
     
     def _precision_score(self, y_true, y_pred):
         return precision_score(y_true, y_pred, average='macro')

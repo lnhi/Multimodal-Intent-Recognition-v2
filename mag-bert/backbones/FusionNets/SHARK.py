@@ -19,7 +19,7 @@ class TextEncoder(nn.Module):
 
         return word_embeddings
     
-    def forward(self, text_feats, xReact_comet, xWant_comet, xReact_sbert, xWant_sbert):
+    def forward(self, text_feats, xReact_comet, xWant_comet, xReact_sbert, xWant_sbert, caption_feats, xAfter_feats, xBefore_feats):
         text_emb = self.get_embedding(text_feats)
         #remove comet
         # xReact_comet_emb = xReact_comet
@@ -28,32 +28,41 @@ class TextEncoder(nn.Module):
         xWant_comet_emb = self.get_embedding(xWant_comet)
         xReact_sbert_emb = self.get_embedding(xReact_sbert)
         xWant_sbert_emb = self.get_embedding(xWant_sbert)
+        caption_emb = self.get_embedding(caption_feats)
+        xBefore_emb = self.get_embedding(xBefore_feats)
+        xAfter_emb = self.get_embedding(xAfter_feats)
+
         #remove sbert
         # xReact_sbert_emb = xReact_sbert
         # xWant_sbert_emb = xWant_sbert
-        return text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb
+        return text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb, caption_emb, xBefore_emb, xAfter_emb
     
 class GateModule(nn.Module):
     def __init__(self, args):
         super(GateModule, self).__init__()
         self.linear_layer = nn.Linear(args.text_feat_dim + args.relation_feat_dim * 2, args.text_feat_dim)
     
-    def forward(self, text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb):
+    def forward(self, text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb, xBefore_emb, xAfter_emb):
         xReact_encoder_outputs_utt = torch.cat((text_emb, xReact_comet_emb, xReact_sbert_emb), -1)
         xWant_encoder_outputs_utt = torch.cat((text_emb, xWant_comet_emb, xWant_sbert_emb), -1)
+        xVisual_comet_encoder_utt = torch.cat((text_emb, xBefore_emb, xAfter_emb), -1)
         indicator_r = self.linear_layer(xReact_encoder_outputs_utt)
         indicator_w = self.linear_layer(xWant_encoder_outputs_utt)
+        indicator_v = self.linear_layer(xVisual_comet_encoder_utt)
         
         indicator_r_ = F.softmax(indicator_r, dim=-1)
         indicator_w_ = F.softmax(indicator_w, dim=-1)
+        indicator_v_ = F.softmax(indicator_v, dim=-1)
 
         indicator_r_ = indicator_r_[:, :, 0].unsqueeze(2).repeat(1, 1, text_emb.size(-1))
         indicator_w_ = indicator_w_[:, :, 0].unsqueeze(2).repeat(1, 1, text_emb.size(-1))
+        indicator_v_ = indicator_v_[:, :, 0].unsqueeze(2).repeat(1, 1, text_emb.size(-1))
 
         new_xReact_encoder_outputs_utt = indicator_r_ * xReact_comet_emb + (1 - indicator_r_) * xReact_sbert_emb
         new_xWant_encoder_outputs_utt = indicator_w_ * xWant_comet_emb + (1 - indicator_w_) * xWant_sbert_emb
+        new_xVisual_comet_encoder_utt = indicator_v_ * xBefore_emb + (1 - indicator_v_) * xAfter_emb
 
-        return new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt
+        return new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt, new_xVisual_comet_encoder_utt
     
 class Fushion(nn.Module):
     def __init__(self, args):
@@ -69,7 +78,39 @@ class Fushion(nn.Module):
         z = self.alpha * z1 + (1 - self.alpha) * z2
 
         return z
+
+class FushionVisual(nn.Module):
+    def __init__(self, args):
+        super(FushionVisual, self).__init__()
+        self.beta = args.weight_fuse_visual_comet
     
+    def forward(self, zT, new_xVisual_comet_encoder_utt):
+        z = self.beta * zT + (1 - self.beta) * new_xVisual_comet_encoder_utt
+        return z
+
+# class FushionVisual(nn.Module):
+#     def __init__(self, args):
+#         super(FushionVisual, self).__init__()
+#         self.W = torch.nn.Parameter(torch.randn(1, 1, args.dst_feature_dims))
+#         self.W.requires_grad = True
+#         self.alpha = args.weight_fuse_relation
+
+#     def forward(self, video_emb, xBefore_emb, xAfter_emb):
+
+#         print("Kích thước video_emb:", video_emb.shape)
+#         print("Kích thước self.W:", self.W.shape)
+
+#         # Đảm bảo video_emb và xBefore_emb có cùng số chiều
+#         assert video_emb.shape[-1] == self.W.shape[-1], "video_emb không khớp với W"
+#         assert xBefore_emb.shape[-1] == self.W.shape[-1], "xBefore_emb không khớp với W"
+
+#         # Thực hiện phép toán
+#         z1 = video_emb + self.W * xBefore_emb
+#         z2 = video_emb + self.W * xAfter_emb
+#         z = self.alpha * z1 + (1 - self.alpha) * z2
+
+#         return z
+
 class MAG(nn.Module):
     def __init__(self,  config, args):
         super(MAG, self).__init__()
@@ -166,7 +207,7 @@ class SDIF(nn.Module):
                 nn.GELU()
             )
 
-    def forward(self, text_feats, video_feats, audio_feats, text_mask):
+    def forward(self, text_feats, video_feats, text_mask):
         # first layer : T,V,A
         # bert_sent, bert_sent_mask, bert_sent_type = text_feats[:,0], text_feats[:,1], text_feats[:,2]
         bert_sent_mask = text_mask
@@ -176,7 +217,7 @@ class SDIF(nn.Module):
 
         video_seq = self.v2t_project(video_feats)
         # video_seq = video_feats
-        audio_seq = audio_feats
+        #audio_seq = audio_feats
 
         video_mask = torch.sum(video_feats.ne(torch.zeros(video_feats[0].shape[-1]).to(self.device)).int(), dim=-1)/video_feats[0].shape[-1]
         video_mask_len = torch.sum(video_mask, dim=1, keepdim=True)  
@@ -185,11 +226,11 @@ class SDIF(nn.Module):
         video_masked_output = torch.mul(video_mask.unsqueeze(2), video_seq)
         video_rep = torch.sum(video_masked_output, dim=1, keepdim=False) / video_mask_len
         
-        audio_mask = torch.sum(audio_feats.ne(torch.zeros(audio_feats[0].shape[-1]).to(self.device)).int(), dim=-1)/audio_feats[0].shape[-1]
-        audio_mask_len = torch.sum(audio_mask, dim=1, keepdim=True)  
+        # audio_mask = torch.sum(audio_feats.ne(torch.zeros(audio_feats[0].shape[-1]).to(self.device)).int(), dim=-1)/audio_feats[0].shape[-1]
+        # audio_mask_len = torch.sum(audio_mask, dim=1, keepdim=True)  
         
-        audio_masked_output = torch.mul(audio_mask.unsqueeze(2), audio_seq)
-        audio_rep = torch.sum(audio_masked_output, dim=1, keepdim=False) / audio_mask_len
+        # audio_masked_output = torch.mul(audio_mask.unsqueeze(2), audio_seq)
+        # audio_rep = torch.sum(audio_masked_output, dim=1, keepdim=False) / audio_mask_len
         
         # Second layer (V,A) --> T: V_T, A_T
         extended_video_mask = video_mask.unsqueeze(1).unsqueeze(2)
@@ -197,22 +238,24 @@ class SDIF(nn.Module):
         extended_video_mask = (1.0 - extended_video_mask) * -10000.0
         video2text_seq = self.video2text_cross(text_seq, video_seq, extended_video_mask)
 
-        extended_audio_mask = audio_mask.unsqueeze(1).unsqueeze(2)
+        # extended_audio_mask = audio_mask.unsqueeze(1).unsqueeze(2)
         extended_audio_mask = extended_audio_mask.to(dtype=next(self.parameters()).dtype)
         extended_audio_mask = (1.0 - extended_audio_mask) * -10000.0
-        audio2text_seq = self.audio2text_cross(text_seq, audio_seq, extended_audio_mask)
+        # audio2text_seq = self.audio2text_cross(text_seq, audio_seq, extended_audio_mask)
 
         text_mask_len = torch.sum(bert_sent_mask, dim=1, keepdim=True) 
         # print(bert_sent_mask.shape, bert_sent_mask.unsqueeze(2).shape, video2text_seq.shape)
         video2text_masked_output = torch.mul(bert_sent_mask.unsqueeze(2), video2text_seq)
         video2text_rep = torch.sum(video2text_masked_output, dim=1, keepdim=False) / text_mask_len
         
-        audio2text_masked_output = torch.mul(bert_sent_mask.unsqueeze(2), audio2text_seq)
-        audio2text_rep = torch.sum(audio2text_masked_output, dim=1, keepdim=False) / text_mask_len
+        # audio2text_masked_output = torch.mul(bert_sent_mask.unsqueeze(2), audio2text_seq)
+        # audio2text_rep = torch.sum(audio2text_masked_output, dim=1, keepdim=False) / text_mask_len
         
         # Third layer: mlp->VAL
         # shallow_seq = self.mlp_project(torch.cat([audio2text_seq, text_seq, video2text_seq], dim=1))
-        shallow_seq = self.mlp_project(torch.cat([audio2text_seq, text_seq, video2text_seq], dim=2))
+
+        shallow_seq = self.mlp_project(torch.cat([text_seq, video2text_seq], dim=2))
+        # shallow_seq = self.mlp_project(torch.cat([audio2text_seq, text_seq, video2text_seq], dim=2))
 
         return shallow_seq
 
@@ -223,6 +266,7 @@ class Shark(nn.Module):
         self.text_encoder = TextEncoder(args)
         self.gate = GateModule(args)
         self.fushion = Fushion(args)
+        self.fushion_visual_comet = FushionVisual(args)
 
         # self.mag = MAG(self.config, args)
         self.sdif = SDIF(args)
@@ -230,7 +274,7 @@ class Shark(nn.Module):
         self.pooler = BertPooler(self.config)
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.classifier = nn.Linear(self.config.hidden_size, args.num_labels)
-
+        
         self.temp = args.temp
 
     def contrastive_loss(self, feats_1, feats_2):
@@ -252,22 +296,68 @@ class Shark(nn.Module):
 
         return con_loss
     
-    def forward(self, text_feats, video_feats, audio_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats):
+    def forward(self, text_feats, video_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats, xBefore_feats, xAfter_feats):
         text_mask = text_feats[:, 1]
         
-        text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb = \
-            self.text_encoder(text_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats)
+        text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb, caption_emb, xBefore_emb, xAfter_emb = \
+            self.text_encoder(text_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats, xBefore_feats, xAfter_feats)
 
-        new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt = self.gate(text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb)
+        new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt, new_xVisual_comet_outputs_utt = self.gate(text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb, xBefore_emb, xAfter_emb)
 
-        text_feats = self.fushion(text_emb, new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt)
+        text_feats_no_caption = self.fushion(text_emb, new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt)
+        text_with_visual_comet = self.fushion_visual_comet(text_feats_no_caption, new_xVisual_comet_outputs_utt)
+
+        #them caption
+        # text_feats_v1 = torch.cat((text_feats_no_caption, caption_emb), -1)
+        # linear_layer = nn.Linear(1536, 768)
+        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # text_feats_v1 = text_feats_v1.to(device)
+        # linear_layer = linear_layer.to(device)
+        # text_feats = linear_layer(text_feats_v1)
+
+        # them visual_comet v1
+        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # xAfter_emb = xAfter_emb.to(device)
+        # xBefore_emb = xBefore_emb.to(device)
+        # video_feat_dim = video_feats.shape[-1]
+        # embedding_dim = xBefore_emb.size(-1)
+        # target_dim = video_feat_dim
+        # linear_projection = torch.nn.Linear(embedding_dim, target_dim).to(device)
+        # xBefore_emb_proj = linear_projection(xBefore_emb)
+        # xAfter_emb_proj = linear_projection(xAfter_emb)
+
+        # target_seq_len = video_feats.size(1)  # 230
+        # xBefore_emb_proj_resized = torch.nn.functional.interpolate(
+        #     xBefore_emb_proj.permute(0, 2, 1),  # ddổi thành (batch_size, 256, 30)
+        #     size=target_seq_len,  # ddưa về chiều dài 230
+        #     mode='linear',  # nội suy tuyến tính
+        #     align_corners=False
+        # ).permute(0, 2, 1)  # Đổi lại về (batch_size, 230, 256)
+
+        # xAfter_emb_proj_resized = torch.nn.functional.interpolate(
+        #     xAfter_emb_proj.permute(0, 2, 1),
+        #     size=target_seq_len,
+        #     mode='linear',
+        #     align_corners=False
+        # ).permute(0, 2, 1)
+
+        # W = torch.nn.Parameter(torch.randn(1, 1, video_feat_dim, device=device))  # cùng chiều với video_emb
+        # W.requires_grad = True
+        # alpha = 0.5
+
+        # z1 = video_feats + W * xBefore_emb_proj_resized
+        # z2 = video_feats + W * xAfter_emb_proj_resized
+        # video_with_visual_comet = alpha * z1 + (1 - alpha) * z2
         # text_feats = self.fushion(text_emb, xReact_comet_emb, xWant_comet_emb) #remove sbert
         # text_feats = self.fushion(text_emb, xReact_sbert_emb, xWant_sbert_emb) #remove comet
 
         # output = torch.mean(self.mag(text_feats, video_feats, audio_feats), dim=1) #full model
         # output = self.pooler(text_feats) #remove audio&video
         # output = self.pooler(self.mag(text_feats, video_feats, audio_feats)) #full model
-        output = self.pooler(self.sdif(text_feats, video_feats, audio_feats, text_mask))
+
+        #output = self.pooler(self.sdif(text_with_visual_comet, video_feats, audio_feats, text_mask))
+        
+        output = self.pooler(text_with_visual_comet, video_feats, text_mask) #remove audio
 
         output = self.dropout(output)
         logits = self.classifier(output)

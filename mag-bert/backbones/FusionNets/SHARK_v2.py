@@ -133,7 +133,7 @@ class TextEncoder(BertPreTrainedModel):
                 output_hidden_states,
             )
     
-    def forward(self, text_feats, xReact_comet, xWant_comet, xReact_sbert, xWant_sbert):
+    def forward(self, text_feats, xReact_comet, xWant_comet, xReact_sbert, xWant_sbert, caption_feats):
         text_emb = self.get_embedding(text_feats)
         #remove comet
         # xReact_comet_emb = xReact_comet
@@ -142,11 +142,12 @@ class TextEncoder(BertPreTrainedModel):
         xWant_comet_emb = self.get_embedding(xWant_comet)
         xReact_sbert_emb = self.get_embedding(xReact_sbert)
         xWant_sbert_emb = self.get_embedding(xWant_sbert)
+        caption_emb = self.get_embedding(caption_feats)
         #remove sbert
         # xReact_sbert_emb = xReact_sbert
         # xWant_sbert_emb = xWant_sbert
 
-        return text_emb, xReact_comet_emb[0], xWant_comet_emb[0], xReact_sbert_emb[0], xWant_sbert_emb[0]
+        return text_emb, xReact_comet_emb[0], xWant_comet_emb[0], xReact_sbert_emb[0], xWant_sbert_emb[0], caption_emb
     
 class GateModule(nn.Module):
     def __init__(self, args):
@@ -252,13 +253,15 @@ class SharkModule(BertPreTrainedModel):
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.classifier = nn.Linear(self.config.hidden_size, args.num_labels)
 
-    def forward(self, text_feats, video_feats, audio_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats):
-        text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb = \
-            self.text_encoder(text_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats)
+    def forward(self, text_feats, video_feats, audio_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats):
+        text_emb, xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb, caption_emb = \
+            self.text_encoder(text_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats)
 
         new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt = self.gate(text_emb[0], xReact_comet_emb, xWant_comet_emb, xReact_sbert_emb, xWant_sbert_emb)
 
-        text_feats = self.fushion(text_emb[0], new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt)
+        text_feats_no_caption = self.fushion(text_emb[0], new_xReact_encoder_outputs_utt, new_xWant_encoder_outputs_utt)
+        text_feats = torch.cat((text_feats_no_caption, caption_emb), -1)
+
         # text_feats = self.fushion(text_emb, xReact_comet_emb, xWant_comet_emb) #remove sbert
         # text_feats = self.fushion(text_emb, xReact_sbert_emb, xWant_sbert_emb) #remove comet
 
@@ -289,7 +292,7 @@ class Shark(nn.Module):
         super(Shark, self).__init__()
         self.model = SharkModule.from_pretrained(args.text_backbone, cache_dir = args.cache_path, args = args)
 
-    def forward(self, text_feats, video_feats, audio_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats):
+    def forward(self, text_feats, video_feats, audio_feats, xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats):
         logits = self.model(
             text_feats, 
             video_feats, 
@@ -297,6 +300,7 @@ class Shark(nn.Module):
             xReact_comet_feats, 
             xWant_comet_feats, 
             xReact_sbert_feats, 
-            xWant_sbert_feats
+            xWant_sbert_feats,
+            caption_feats
         )
         return logits

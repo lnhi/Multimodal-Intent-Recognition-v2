@@ -3,17 +3,16 @@ import csv
 import sys
 import logging
 from transformers import BertTokenizer
-import numpy as np
-# from imblearn.over_sampling import SMOTE
 
-__all__ = ['TextDataset']
+__all__ = ['CaptionDataset']
 
-class TextDataset:
+class CaptionDataset:
     
     def __init__(self, args, base_attrs):
         
         self.logger = logging.getLogger(args.logger_name)
         self.base_attrs = base_attrs
+        self.caption_path = os.path.join(args.data_path, args.dataset, 'caption')
         
         if args.text_backbone.startswith('bert'):
             self.feats = self._get_feats(args, base_attrs)
@@ -26,43 +25,13 @@ class TextDataset:
 
         processor = DatasetProcessor()
 
-        train_examples = processor.get_examples(base_attrs['data_path'], 'train')
+        train_examples = processor.get_examples(self.caption_path, 'train')
         train_feats = self._get_bert_feats(args, train_examples, base_attrs)
 
-        # X_train = []
-        # y_train = []
-        # for i, feat in enumerate(train_feats):
-        #     # Gộp input_ids và input_mask để làm đặc trưng
-        #     feature = np.hstack((feat[0], feat[1]))  # input_ids + input_mask
-        #     X_train.append(feature)
-        #     # Lấy nhãn từ GUID (giả định nhãn nằm trong GUID của examples)
-        #     label = int(train_examples[i].guid.split('-')[1])
-        #     y_train.append(label)
-
-        # X_train = np.array(X_train)
-        # y_train = np.array(y_train, dtype=int)
-
-        # # Áp dụng SMOTE để cân bằng dữ liệu
-        # smote = SMOTE(random_state=42)
-        # X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
-
-        # # Log lại phân phối nhãn sau SMOTE
-        # from collections import Counter
-        # self.logger.info(f"Label distribution after SMOTE: {Counter(y_resampled)}")
-
-        # # Chuyển đổi lại dữ liệu sau SMOTE về định dạng train_feats
-        # train_feats_resampled = []
-        # for i in range(len(X_resampled)):
-        #     input_ids = X_resampled[i][:len(train_feats[0][0])]  # Tách input_ids
-        #     input_mask = X_resampled[i][len(train_feats[0][0]):]  # Tách input_mask
-        #     segment_ids = [0] * len(input_ids)  # Giữ nguyên segment_ids (nếu cần)
-
-        #     train_feats_resampled.append([input_ids, input_mask, segment_ids])
-
-        dev_examples = processor.get_examples(base_attrs['data_path'], 'dev')
+        dev_examples = processor.get_examples(self.caption_path, 'dev')
         dev_feats = self._get_bert_feats(args, dev_examples, base_attrs)
 
-        test_examples = processor.get_examples(base_attrs['data_path'], 'test')
+        test_examples = processor.get_examples(self.caption_path, 'test')
         test_feats = self._get_bert_feats(args, test_examples, base_attrs)
         
         self.logger.info('Generate Text Features Finished...')
@@ -135,16 +104,16 @@ class DataProcessor(object):
 
 class DatasetProcessor(DataProcessor):
 
-    def get_examples(self, data_dir, mode):
+    def get_examples(self, caption_dir, mode):
         if mode == 'train':
             return self._create_examples(
-                self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+                self._read_tsv(os.path.join(caption_dir, "train.tsv")), "train")
         elif mode == 'dev':
             return self._create_examples(
-                self._read_tsv(os.path.join(data_dir, "dev.tsv")), "train")
+                self._read_tsv(os.path.join(caption_dir, "dev.tsv")), "train")
         elif mode == 'test':
             return self._create_examples(
-                self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+                self._read_tsv(os.path.join(caption_dir, "test.tsv")), "test")
 
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
@@ -154,7 +123,7 @@ class DatasetProcessor(DataProcessor):
                 continue
 
             guid = "%s-%s" % (set_type, i)
-            text_a = line[3]
+            text_a = line[1]
 
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=None))

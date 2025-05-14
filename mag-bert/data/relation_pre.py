@@ -4,6 +4,8 @@ import sys
 import logging
 import pandas as pd
 from transformers import BertTokenizer
+import numpy as np
+# from imblearn.over_sampling import SMOTE
 
 __all__ = ['RelationDataset']
 
@@ -28,6 +30,43 @@ class RelationDataset:
 
         train_xReact_examples, train_xWant_examples = processor.get_examples(self.relation_path, 'train', self.relation_source)
         train_feats = self._get_bert_feats(args, train_xReact_examples, train_xWant_examples, base_attrs)
+
+        # X_train = []
+        # y_train = []
+        # for i, xReact in enumerate(train_feats['xReact']):
+        #     xWant = train_feats['xWant'][i]
+        #     # Gộp đặc trưng từ xReact và xWant
+        #     feature = np.hstack((xReact[0], xReact[1], xWant[0], xWant[1]))  # input_ids + input_mask
+        #     X_train.append(feature)
+        #     # Lấy nhãn từ GUID (giả định nhãn nằm trong GUID của examples)
+        #     label = int(train_xReact_examples[i].guid.split('-')[1])
+        #     y_train.append(label)
+
+        # X_train = np.array(X_train)
+        # y_train = np.array(y_train, dtype=int)
+
+        # # Áp dụng SMOTE để cân bằng dữ liệu
+        # smote = SMOTE(random_state=42)
+        # X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+
+        # # Log lại phân phối nhãn sau SMOTE
+        # from collections import Counter
+        # self.logger.info(f"Label distribution after SMOTE: {Counter(y_resampled)}")
+
+        # # Chuyển đổi lại dữ liệu sau SMOTE về định dạng train_feats
+        # train_feats_resampled = {
+        #     'xReact': [],
+        #     'xWant': []
+        # }
+        # for feature, label in zip(X_resampled, y_resampled):
+        #     # Tách lại input_ids và input_mask cho xReact và xWant
+        #     input_ids_xReact = feature[:len(train_feats['xReact'][0][0])]
+        #     input_mask_xReact = feature[len(train_feats['xReact'][0][0]):len(train_feats['xReact'][0][0]) + len(train_feats['xReact'][0][1])]
+        #     input_ids_xWant = feature[-len(train_feats['xWant'][0][0]) - len(train_feats['xWant'][0][1]):-len(train_feats['xWant'][0][1])]
+        #     input_mask_xWant = feature[-len(train_feats['xWant'][0][1]):]
+
+        #     train_feats_resampled['xReact'].append([input_ids_xReact, input_mask_xReact, [0] * len(input_ids_xReact)])
+        #     train_feats_resampled['xWant'].append([input_ids_xWant, input_mask_xWant, [0] * len(input_ids_xWant)])
 
         dev_xReact_examples, dev_xWant_examples = processor.get_examples(self.relation_path, 'dev', self.relation_source)
         dev_feats = self._get_bert_feats(args, dev_xReact_examples, dev_xWant_examples, base_attrs)

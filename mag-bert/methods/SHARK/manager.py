@@ -6,6 +6,8 @@ from utils.functions import restore_model, save_model, EarlyStopping
 from tqdm import trange, tqdm
 from utils.metrics import AverageMeter, Metrics
 from transformers import AdamW, get_linear_schedule_with_warmup
+import numpy as np
+from collections import Counter
 
 __all__ = ['SHARK']
 
@@ -23,7 +25,21 @@ class SHARK:
             data.mm_dataloader['train'], data.mm_dataloader['dev'], data.mm_dataloader['test']
         
         self.args = args
-        self.criterion = nn.CrossEntropyLoss()
+
+        #tinh class weight
+        y_train = []
+        for batch in self.train_dataloader:
+            labels = batch['label_ids'].cpu().numpy()
+            y_train.extend(labels)
+        y_train = np.array(y_train)
+
+        class_counts = Counter(y_train)
+        num_samples = len(y_train)
+        weights = [num_samples / class_counts[c] for c in range(len(class_counts))]
+        self.class_weights = torch.tensor(weights, dtype = torch.float32).to(self.device)
+        
+        #dinh nghia ham loss voi trong so
+        self.criterion = nn.CrossEntropyLoss(weight = self.class_weights)
         self.metrics = Metrics(args)
 
         if args.train:
@@ -58,6 +74,7 @@ class SHARK:
         
         early_stopping = EarlyStopping(args)
         
+        
         for epoch in trange(int(args.num_train_epochs), desc="Epoch"):
             self.model.train()
             loss_record = AverageMeter()
@@ -72,11 +89,14 @@ class SHARK:
                 xWant_comet_feats = batch['relation_feats']['comet']['xWant'].to(self.device)
                 xReact_sbert_feats = batch['relation_feats']['sbert']['xReact'].to(self.device)
                 xWant_sbert_feats = batch['relation_feats']['sbert']['xWant'].to(self.device)
+                caption_feats = batch['caption_feats'].to(self.device)
+                xBefore_feats = batch['visualcomet_feats']['comet']['xBefore'].to(self.device)
+                xAfter_feats = batch['visualcomet_feats']['comet']['xAfter'].to(self.device)
 
                 with torch.set_grad_enabled(True):
 
-                    logits = self.model(text_feats, video_feats, audio_feats,\
-                        xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats)
+                    logits = self.model(text_feats, video_feats, \
+                        xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats, xBefore_feats, xAfter_feats)
 
                     loss = self.criterion(logits, label_ids)
                     self.optimizer.zero_grad()
@@ -140,11 +160,14 @@ class SHARK:
             xWant_comet_feats = batch['relation_feats']['comet']['xWant'].to(self.device)
             xReact_sbert_feats = batch['relation_feats']['sbert']['xReact'].to(self.device)
             xWant_sbert_feats = batch['relation_feats']['sbert']['xWant'].to(self.device)
+            caption_feats = batch['caption_feats'].to(self.device)
+            xBefore_feats = batch['visualcomet_feats']['comet']['xBefore'].to(self.device)
+            xAfter_feats = batch['visualcomet_feats']['comet']['xAfter'].to(self.device)
             
             with torch.set_grad_enabled(False):
                 
-                logits= self.model(text_feats, video_feats, audio_feats,\
-                        xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats)
+                logits= self.model(text_feats, video_feats,\
+                        xReact_comet_feats, xWant_comet_feats, xReact_sbert_feats, xWant_sbert_feats, caption_feats, xBefore_feats, xAfter_feats)
                 total_logits = torch.cat((total_logits, logits))
                 total_labels = torch.cat((total_labels, label_ids))
  
